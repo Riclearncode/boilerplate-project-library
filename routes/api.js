@@ -35,7 +35,7 @@ module.exports = function (app) {
     
     .post(function (req, res){
       let title = req.body.title;
-      if(!title) return res.type('text').send('missing title');
+      if(!title) return res.type('text').send('missing required field title');
       const id = genId();
       const book = { _id: id, title: title, comments: [] };
       books[id] = book;
@@ -61,7 +61,7 @@ module.exports = function (app) {
     .post(function(req, res){
       let bookid = req.params.id;
       let comment = req.body.comment;
-      if(!comment) return res.type('text').send('missing comment');
+      if(!comment) return res.type('text').send('missing required field comment');
       const book = books[bookid];
       if(!book) return res.type('text').send('no book exists');
       book.comments.push(comment);
