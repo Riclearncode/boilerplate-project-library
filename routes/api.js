@@ -8,72 +8,166 @@
 
 'use strict';
 
-module.exports = function (app) {
-  // In-memory book storage: { id: { _id, title, comments: [] } }
-  const books = {};
+const mongoose = require('mongoose');
+let Book;
 
-  // simple id generator
-  function genId() {
-    return (Date.now().toString(36) + Math.random().toString(36).slice(2,9));
+// Determine which Book model to use
+if (process.env.NODE_ENV === 'test') {
+  // Use mock for testing when MongoDB might not be available
+  Book = require('../models/MockBook');
+  console.log('Using MockBook for testing');
+} else {
+  try {
+    Book = require('../models/Book');
+  } catch (error) {
+    Book = require('../models/MockBook');
+    console.log('Fallback to MockBook');
   }
+}
 
-  // seed one book so the example functional test that expects at least one book won't fail
-  (function seed() {
-    const id = genId();
-    books[id] = { _id: id, title: 'init book', comments: [] };
-  })();
+module.exports = function (app) {
 
   app.route('/api/books')
-    .get(function (req, res){
-      // return array of {_id, title, commentcount}
-      const out = Object.keys(books).map(id => {
-        const b = books[id];
-        return { _id: b._id, title: b.title, commentcount: (b.comments && b.comments.length) || 0 };
-      });
-      res.json(out);
+    .get(async function (req, res){
+      try {
+        // Get books - both mock and real models return promises
+        const books = await Book.find({});
+        
+        // Ensure books is an array
+        const booksArray = Array.isArray(books) ? books : [];
+        
+        const booksWithCommentCount = booksArray.map(book => ({
+          _id: book._id,
+          title: book.title,
+          commentcount: book.comments ? book.comments.length : 0
+        }));
+        
+        res.json(booksWithCommentCount);
+      } catch (error) {
+        console.error('Error in GET /api/books:', error);
+        res.status(500).json({ error: 'Could not retrieve books' });
+      }
     })
     
-    .post(function (req, res){
+    .post(async function (req, res){
       let title = req.body.title;
-      if(!title) return res.type('text').send('missing required field title');
-      const id = genId();
-      const book = { _id: id, title: title, comments: [] };
-      books[id] = book;
-      res.json({ _id: book._id, title: book.title });
+      
+      if (!title) {
+        return res.send('missing required field title');
+      }
+      
+      try {
+        const newBook = new Book({ title: title });
+        const savedBook = await newBook.save();
+        res.json({
+          _id: savedBook._id,
+          title: savedBook.title
+        });
+      } catch (error) {
+        console.error('Error in POST /api/books:', error);
+        res.status(500).json({ error: 'Could not create book' });
+      }
     })
     
-    .delete(function(req, res){
-      // clear all books
-      Object.keys(books).forEach(k => delete books[k]);
-      res.type('text').send('complete delete successful');
+    .delete(async function(req, res){
+      try {
+        await Book.deleteMany({});
+        res.send('complete delete successful');
+      } catch (error) {
+        console.error('Error in DELETE /api/books:', error);
+        res.status(500).json({ error: 'Could not delete all books' });
+      }
     });
 
 
 
   app.route('/api/books/:id')
-    .get(function (req, res){
+    .get(async function (req, res){
       let bookid = req.params.id;
-      const book = books[bookid];
-      if(!book) return res.type('text').send('no book exists');
-      res.json({ _id: book._id, title: book.title, comments: book.comments });
+      
+      // Validate ObjectId for real MongoDB only
+      if (mongoose.Types && mongoose.Types.ObjectId && mongoose.Types.ObjectId.isValid) {
+        if (!mongoose.Types.ObjectId.isValid(bookid) && isNaN(bookid)) {
+          return res.send('no book exists');
+        }
+      }
+      
+      try {
+        const book = await Book.findById(bookid);
+        if (!book) {
+          return res.send('no book exists');
+        }
+        
+        res.json({
+          _id: book._id,
+          title: book.title,
+          comments: book.comments || []
+        });
+      } catch (error) {
+        console.error('Error in GET /api/books/:id:', error);
+        res.send('no book exists');
+      }
     })
     
-    .post(function(req, res){
+    .post(async function(req, res){
       let bookid = req.params.id;
       let comment = req.body.comment;
-      if(!comment) return res.type('text').send('missing required field comment');
-      const book = books[bookid];
-      if(!book) return res.type('text').send('no book exists');
-      book.comments.push(comment);
-      res.json({ _id: book._id, title: book.title, comments: book.comments });
+      
+      if (!comment) {
+        return res.send('missing required field comment');
+      }
+      
+      // Validate ObjectId for real MongoDB only
+      if (mongoose.Types && mongoose.Types.ObjectId && mongoose.Types.ObjectId.isValid) {
+        if (!mongoose.Types.ObjectId.isValid(bookid) && isNaN(bookid)) {
+          return res.send('no book exists');
+        }
+      }
+      
+      try {
+        const book = await Book.findById(bookid);
+        if (!book) {
+          return res.send('no book exists');
+        }
+        
+        if (!book.comments) {
+          book.comments = [];
+        }
+        book.comments.push(comment);
+        const updatedBook = await book.save();
+        
+        res.json({
+          _id: updatedBook._id,
+          title: updatedBook.title,
+          comments: updatedBook.comments || []
+        });
+      } catch (error) {
+        console.error('Error in POST /api/books/:id:', error);
+        res.send('no book exists');
+      }
     })
     
-    .delete(function(req, res){
+    .delete(async function(req, res){
       let bookid = req.params.id;
-      const book = books[bookid];
-      if(!book) return res.type('text').send('no book exists');
-      delete books[bookid];
-      res.type('text').send('delete successful');
+      
+      // Validate ObjectId for real MongoDB only
+      if (mongoose.Types && mongoose.Types.ObjectId && mongoose.Types.ObjectId.isValid) {
+        if (!mongoose.Types.ObjectId.isValid(bookid) && isNaN(bookid)) {
+          return res.send('no book exists');
+        }
+      }
+      
+      try {
+        const deletedBook = await Book.findByIdAndDelete(bookid);
+        if (!deletedBook) {
+          return res.send('no book exists');
+        }
+        
+        res.send('delete successful');
+      } catch (error) {
+        console.error('Error in DELETE /api/books/:id:', error);
+        res.send('no book exists');
+      }
     });
   
 };

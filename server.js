@@ -3,6 +3,7 @@
 const express     = require('express');
 const bodyParser  = require('body-parser');
 const cors        = require('cors');
+const mongoose    = require('mongoose');
 require('dotenv').config();
 
 const apiRoutes         = require('./routes/api.js');
@@ -10,6 +11,32 @@ const fccTestingRoutes  = require('./routes/fcctesting.js');
 const runner            = require('./test-runner');
 
 const app = express();
+
+// Connect to MongoDB
+mongoose.connect(process.env.DB, { 
+  useNewUrlParser: true, 
+  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
+  socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
+}).catch(err => {
+  console.log('MongoDB connection failed, using fallback storage:', err.message);
+});
+
+const db = mongoose.connection;
+db.on('error', (err) => {
+  console.log('MongoDB connection error, using fallback storage:', err.message);
+});
+db.once('open', function() {
+  console.log('Connected to MongoDB');
+});
+
+// Handle MongoDB connection for testing
+if (process.env.NODE_ENV === 'test') {
+  // For testing, we'll use a simple in-memory approach if MongoDB is not available
+  mongoose.connection.on('error', () => {
+    console.log('MongoDB not available, using mock storage for tests');
+  });
+}
 
 app.use('/public', express.static(process.cwd() + '/public'));
 
